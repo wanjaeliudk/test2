@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: trade-finance-ussd-service
+  mvc:
+    async:
+      request-timeout: 5000
+  config:
+    import: optional:configserver:http://dtbx-config-server.dtbxapps:8888
+  cloud:
+    config:
+      uri: http://dtbx-config-server.dtbxapps:8888
+      name: trade-finance-ussd-service
+      profile: "dev"
+      label: "dev"
+      enabled: true
+    compatibility-verifier:
+      enabled: false
+
+springdoc:
+  swagger-ui:
+    path: "/api-docs.html"

@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-session-schema
+      author: copilot
+      runOnChange: true
+      runInTransaction: true
+      changes:
+        - sqlFile:
+            path: schema/001-create-ussd-session-schema.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
