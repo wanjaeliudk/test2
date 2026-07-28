@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id:
+      author: Eliud Wanja
+      runOnChange: true
+      runInTransaction: true
+      changes:
+        - sqlFile:
+            path: schema/
+            relativeToChangelogFile: true
+            splitStatements: true
+            stripComments: true
