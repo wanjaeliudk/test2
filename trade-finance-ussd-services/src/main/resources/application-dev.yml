@@ -1,21 +1,126 @@
+# trade-finance-ussd-service
+server:
+  port: 9032
+  forward-headers-strategy: framework
+  servlet:
+    context-path: /api/trade-finance-ussd-service
+  error:
+    include-message: always
+    include-stacktrace: never
+application:
+  date-format: "yyyy-MM-dd HH:mm:ss"
+
 spring:
-  application:
-    name: trade-finance-ussd-service
-  mvc:
-    async:
-      request-timeout: 5000
   config:
-    import: optional:configserver:http://dtbx-config-server.dtbxapps:8888
+    import: "optional:configserver:"
   cloud:
     config:
-      uri: http://dtbx-config-server.dtbxapps:8888
-      name: trade-finance-ussd-service
-      profile: "dev"
-      label: "dev"
-      enabled: true
-    compatibility-verifier:
       enabled: false
+  jackson:
+    time-zone: Africa/Nairobi
+
+  jpa:
+    properties:
+      hibernate:
+        default_schema: trade_finance_ussd
+    hibernate:
+      ddl-auto: none
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/lms
+    username: postgres
+    password: password
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 3
+    driver-class-name: org.postgresql.Driver
+
+  # Liquibase - uses primary PostgreSQL datasource
+  liquibase:
+    enabled: true
+    default-schema: trade_finance_ussd
+    liquibase-schema: trade_finance_ussd
+    change-log: classpath:db/changelog/changelog.yaml
+    database-change-log-lock-table: database_changelog_lock
+    database-change-log-table: database_changelog
+
+  data:
+    redis:
+      host:
+      password:
+      port:
+      ssl:
+        enabled: true
+      cert:
+        value:
+
+public-auth-service:
+  base-url: http://public-auth-service:9010/api/auth
+  client-id: 301a6d3c-c8c6-4dd2-8dfc-10b5a80ce53f
+  client-secret: YmXtKvaKv8DaE7UytR9ojDHPc5kh2
+  grant-type: client_credentials
+  endpoints:
+    token-url: /token
+
+profile-service:
+  base-url: https://uat.dtbafrica.com/api/profile
+  endpoints:
+    check-customer-profile: /v1/profiles/country/{countryId}/phone-no/{phoneNo}
+    get-x247accounts: /profile-accounts/{profileId}
+    cellulant-pin-validate: /v1/profiles/country/{countryId}/phone-no/{phoneNo}/validate-cellulant-pin
+    link-accounts-by-id: /v1/profiles/country/{countryId}/phone-no/{phoneNo}/accounts/link-customer-core-banking-accounts
+    link-m247-accounts: /profiles/{countryId}/{username}/accounts/link-customer-m247-accounts
+    change-pin: /v1/profiles/{profileId}/change-forgotten-pin
+    verify-otp: /v1/profiles/country/{countryId}/phone-no/{phoneNo}/otps/verify
+    get-customer-profile: /profiles-by-id/{profileId}
+    send-otp: /v1/profiles/country/{countryId}/phone-no/{phoneNo}/otps/verify-phone
+    pin-strength: /v1/profile-pins/check-strength
+    reset-pin-by-id: /v1/profiles/country/{countryId}/id-no/{idNo}/reset-pin
+
+trade-finance-origination-service:
+  base-url: https://uat.dtbafrica.com/api/trade-finance-service
+  endpoints:
+    get-anchors: /v1/trade-finance-anchors
+    request-loan:
+
+
+
+#Actuator
+management:
+  security:
+    enabled: false
+  context-path: /manage
+  endpoints:
+    web:
+      exposure:
+        include: "info, health, metrics"
+  metrics:
+    tags:
+      application: trade-finance-ussd-service
+      environment: local
 
 springdoc:
+  api-docs:
+    path: /v3/api-docs
   swagger-ui:
-    path: "/api-docs.html"
+    path: /swagger-ui.html
+    operationsSorter: alpha
+    tagsSorter: alpha
+
+#Actuator
+security:
+  scope: trade-finance-ussd-service
+  public:
+    endpoints: /swagger-ui.html,
+      /swagger-ui.html/**,
+      /swagger-resources,
+      /swagger-resources/**,
+      /v2/api-docs,
+      /v3/api-docs/**,
+      /v3/api-docs**,
+      /webjars/**,
+      /swagger-ui/**,
+      /swagger-ui*,
+      /v3/api-docs.yaml,
+      /actuator/**,
+      /h2-console/**
