@@ -1,0 +1,312 @@
+================================================================================
+TRADE FINANCE USSD - QUICK REFERENCE SUMMARY
+================================================================================
+
+SCENARIO:
+---------
+New tenant: "Trade Finance"
+New client: "Trade Finance USSD"
+Onboarding type: USSD with Fiorano Core Banking data pull
+Key difference: NO security questions, NO Cellulant PIN validation
+
+================================================================================
+CURRENT STATE - What Exists
+================================================================================
+
+✅ PUBLIC AUTH SERVICE:
+   - TenantOrganization model & endpoints (create, list)
+   - ClientDetails model & endpoints (create, list, update)
+   - ClientType enum (expandable)
+   - AuthUser management
+   - Endpoint: GET /v1/tenant-organizations
+
+✅ PROFILE SERVICE:
+   - Profile lookup by country + phone
+   - Fiorano integration (national ID + passport lookup)
+   - Onboarding workflow with step tracking
+   - PIN setup and storage
+   - Security questions setup and validation
+   - Cellulant PIN validation integration
+   - Device registration with custom device IDs
+   - Endpoints: POST /v1/profiles/country/{cc}/phone-no/{pn}
+   - OTP verification endpoints
+
+✅ FIORANO CORE BANKING INTEGRATION:
+   - Method: FioranoDataQueryService.getCustomerCoreBankingAccountsByIdNumberOrPassport()
+   - Supports: National ID, Passport lookup
+   - Returns: Customer details, accounts, personal info
+   - Already fully implemented & tested
+
+✅ DEVICE ID HANDLING:
+   - Customizable device ID format per client
+   - Tracked in ProfileDevice entity
+
+================================================================================
+CHANGES NEEDED - What Must Change
+================================================================================
+
+🔧 PUBLIC AUTH SERVICE:
+
+1. Create Trade Finance Tenant:
+   - Name: "Trade Finance"
+   - Code: "TRADE_FINANCE" 
+   - Status: ACTIVE
+
+2. Create Trade Finance USSD Client:
+   - Name: "Trade Finance USSD"
+   - ParentTenant: Trade Finance
+   - ClientType: USSD (add if needed) OR use existing + config
+   - Config fields needed:
+     ✗ skipSecurityQuestions: true
+     ✗ skipCellulantValidation: true
+     ✓ onboardingChannel: "USSD"
+
+3. Database schema (hybrid approach recommended):
+   ADD to client_details table:
+   - onboarding_channel VARCHAR(20)
+   - skip_security_questions BOOLEAN DEFAULT false
+   - skip_cellulant_validation BOOLEAN DEFAULT false
+
+🔧 PROFILE SERVICE:
+
+1. Create Trade Finance-specific Onboarding Service:
+   - File: TradeFinanceOnboardingService/Impl
+   - Orchestrates steps: OTP → PIN Setup → PIN Confirm
+   - Skips: SecurityQuestionsSetUp, Cellulant validation
+
+2. Extend ProfileCountryAndPhoneNoService:
+   - Add clientId/config awareness
+   - Route Trade Finance requests to new service
+   - Call FioranoDataQueryService to pull customer details
+   - Map Fiorano response to Profile
+
+3. Create new endpoint:
+   POST /v1/profiles/country/{countryCode}/phone-no/{phoneNumber}/trade-finance-ussd
+   Body: { nationalId or passport, clientId }
+   
+4. Device ID generation:
+   Format: trade-finance-ussd-{countryCode}-{phoneNumber}
+   Example: trade-finance-ussd-KE-254711111111
+
+5. Modify onboarding step selection logic:
+   - Check client config before adding SecurityQuestionsSetUp
+   - Check client config before calling Cellulant validation
+   - Use strategy pattern for different client types
+
+================================================================================
+WORKFLOW COMPARISON
+================================================================================
+
+CURRENT (EATTA):                    NEW (TRADE FINANCE USSD):
+────────────────────────           ──────────────────────────
+User dials USSD             →       User dials USSD
+↓                                   ↓
+Check profile by phone      →       Check profile by phone
+↓                                   ↓
+Not found → M247/Account    →       Not found → Fiorano lookup
+↓                                   ↓ (uses National ID/Passport)
+Create profile (standard)   →       Create profile (Fiorano data)
+↓                                   ↓
+OTP Verify                  →       OTP Verify
+↓                                   ↓
+ID Document Upload          →       [SKIP - use Fiorano data]
+↓                                   ↓
+Liveness Check              →       [SKIP - not needed]
+↓                                   ↓
+PIN Setup                   →       PIN Setup
+↓                                   ↓
+PIN Confirm                 →       PIN Confirm
+↓                                   ↓
+Security Questions Setup    →       [SKIP - NOT NEEDED]
+↓                                   ↓
+Cellulant Validation        →       [SKIP - NOT NEEDED]
+↓                                   ↓
+COMPLETE                    →       COMPLETE
+
+
+================================================================================
+FIORANO DATA FLOW (Trade Finance USSD)
+================================================================================
+
+INPUT: 
+  - countryCode (e.g., KE)
+  - phoneNumber (e.g., 254711111111)
+  - nationalId OR passport (provided by user or USSD system)
+
+PROCESS:
+  1. Check Profile Service for existing profile
+  2. If NOT found:
+     a. Call FioranoDataQueryServiceImpl.getCustomerCoreBankingAccountsByIdNumberOrPassport()
+     b. Pass: National ID or Passport
+     c. Fiorano service queries: /query-customer-by-id or /query-customer-by-passport
+     d. Returns: FioranoCustomerAccountStatusResponse with customer details
+     e. Map response fields to Profile entity
+
+OUTPUT PROFILE DATA FROM FIORANO:
+  - firstName
+  - lastName  
+  - email
+  - phone
+  - idNumber (national ID)
+  - idType (NATIONAL_ID or PASSPORT)
+  - address
+  - dateOfBirth
+  - accounts (linked bank accounts)
+  - customerStatus
+  - CIF (Customer ID in core banking)
+
+PROFILE CREATION:
+  - Linked to Trade Finance tenant
+  - Country: from input
+  - Phone: from input
+  - Device: trade-finance-ussd-{CC}-{PHONE}
+  - Status: INCOMPLETE (onboarding not done)
+  - Onboarding config: skipSecurityQuestions=true, skipCellulant=true
+
+================================================================================
+FILES TO MODIFY/CREATE
+================================================================================
+
+PUBLIC AUTH SERVICE:
+  Modify:
+    ✓ enums/ClientType.java (add USSD type)
+    ✓ model/ClientDetails.java (add config fields)
+    ✓ controller/ClientController.java (endpoint to create Trade Finance client)
+    ✓ controller/TenantOrganizationV1Controller.java (if needed)
+  
+  Create:
+    ✓ Data migration script (add config columns)
+
+PROFILE SERVICE:
+  Modify:
+    ✓ controller/v1/ProfileCountryAndPhoneNoV1Controller.java
+    ✓ service/profile/ProfileCountryAndPhoneNoService.java (interface)
+    ✓ service/profile/ProfileCountryAndPhoneNoServiceImpl.java
+    ✓ service/profileonboarding/ProfileOnboardingStepsService.java
+    ✓ service/profileonboarding/ProfileOnboardingServiceImpl.java
+  
+  Create:
+    ✓ service/profileonboarding/TradeFinanceOnboardingService.java
+    ✓ service/profileonboarding/TradeFinanceOnboardingServiceImpl.java
+    ✓ controller/v1/TradeFinanceProfileV1Controller.java (optional)
+    ✓ dto/request/TradeFinanceOnboardingRequestDTO.java
+
+  No changes needed (already exist):
+    ✅ FioranoService & FioranoDataQueryService
+    ✅ OTP verification endpoints
+    ✅ PIN setup endpoints
+    ✅ Profile creation logic
+
+================================================================================
+RISK ASSESSMENT
+================================================================================
+
+🟢 LOW RISK (no impact on existing clients):
+  ✓ Adding new ClientType enum value
+  ✓ Creating new Trade Finance services
+  ✓ Creating new endpoints (doesn't modify existing)
+  ✓ Adding optional config fields with defaults
+
+🟡 MEDIUM RISK (needs conditional logic):
+  ✓ Extending ProfileOnboardingStepsService
+    → Mitigation: Check clientId before skipping steps
+    → Test: Verify existing clients still work
+  
+  ✓ Modifying ProfileCountryAndPhoneNoServiceImpl
+    → Mitigation: Route based on clientId
+    → Test: Integration tests with existing clients
+
+🔴 HIGH RISK: NONE (avoid these)
+  ✗ Do NOT remove or rename existing onboarding steps
+  ✗ Do NOT change Cellulant integration (just skip for this client)
+  ✗ Do NOT modify PIN storage mechanism
+
+================================================================================
+CONFIGURATION APPROACH (Recommended: HYBRID)
+================================================================================
+
+Add columns to client_details table:
+
+  - onboarding_channel VARCHAR(20) DEFAULT NULL
+  - skip_security_questions BOOLEAN DEFAULT false
+  - skip_cellulant_validation BOOLEAN DEFAULT false
+
+During onboarding step selection:
+
+  if (client.isSkipSecurityQuestions()) {
+      onboardingSteps.remove(OnboardingStepName.SecurityQuestionsSetUp);
+  }
+  
+  if (client.isSkipCellulantValidation()) {
+      skipCellulantValidation = true;
+  }
+
+================================================================================
+KEY IMPLEMENTATION NOTES
+================================================================================
+
+1. PROFILE LOOKUP:
+   - Trade Finance USSD must provide National ID or Passport
+   - Fiorano lookup method already exists
+   - Create profile with Fiorano data + Trade Finance tenant
+
+2. DEVICE ID PATTERN:
+   trade-finance-ussd-{countryCode}-{phoneNumber}
+   Example: trade-finance-ussd-KE-254711111111
+
+3. ONBOARDING STEPS FOR TRADE FINANCE USSD:
+   ✓ OTP Verification (phone number)
+   ✓ PIN Setup (new PIN entry)
+   ✓ PIN Confirmation (re-enter PIN)
+   ✗ Security Questions Setup (SKIPPED)
+   ✗ Cellulant PIN Validation (SKIPPED)
+   ✗ Document/Liveness verification (use Fiorano data instead)
+
+4. EXISTING FIORANO INTEGRATION:
+   - FioranoDataQueryService.getCustomerCoreBankingAccountsByIdNumberOrPassport()
+   - Already handles: National ID → Passport fallback
+   - Just needs to be called with Trade Finance customer data
+
+5. PIN STORAGE:
+   - Stored in Profile entity (not in Cellulant)
+   - Hashed using existing PIN hashing logic
+   - No change to storage mechanism needed
+
+================================================================================
+BACKWARD COMPATIBILITY
+================================================================================
+
+✅ NO BREAKING CHANGES if implemented correctly:
+   - Existing clients (Eatta, etc.) will have:
+     * onboarding_channel = NULL
+     * skip_security_questions = false (default)
+     * skip_cellulant_validation = false (default)
+   - Existing logic will work unchanged
+   - New Trade Finance logic only activates when flags = true
+
+================================================================================
+NEXT STEPS (Not for execution - analysis only)
+================================================================================
+
+Phase 1: Setup
+  [ ] Add Trade Finance tenant
+  [ ] Add Trade Finance USSD client with config
+  [ ] Run database migration
+
+Phase 2: Core Service
+  [ ] Create TradeFinanceOnboardingServiceImpl
+  [ ] Extend ProfileCountryAndPhoneNoService with Trade Finance logic
+  [ ] Create new endpoint
+
+Phase 3: Workflow
+  [ ] Implement conditional step skipping
+  [ ] Test Fiorano data pull
+  [ ] Test device ID generation
+
+Phase 4: Validation
+  [ ] Unit tests
+  [ ] Integration tests (Fiorano)
+  [ ] Regression tests (existing clients)
+  [ ] E2E testing
+
+================================================================================

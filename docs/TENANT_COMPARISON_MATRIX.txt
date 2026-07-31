@@ -1,0 +1,275 @@
+================================================================================
+TENANT ORGANIZATIONS COMPARISON MATRIX
+================================================================================
+
+TENANT IDS & NAMES:
+────────────────────────────────────────────────────────────────────────────────
+DTB Mobile           | ID: cc3bcf1e-069c-40d7-acb6-ce9d48b7fb79
+Astra Mara           | ID: 7965c518-865f-47c3-a7d1-d84d3be87f15
+GFL                  | ID: 88ad615d-5d4f-4649-b6c3-51ae8be8a3b3
+M247                 | ID: a8e4504c-aa47-4809-8ed2-dedf0c0743c0
+Trade Finance (NEW)  | ID: [TO BE CREATED]
+
+================================================================================
+FEATURE COMPARISON
+================================================================================
+
+                          | DTB Mobile | Astra Mara | GFL    | M247   | Trade Finance
+────────────────────────────────────────────────────────────────────────────────
+Phone Verification       |     ✅     |     ✅     |   ✅   |   ✅   |      ✅
+────────────────────────────────────────────────────────────────────────────────
+Document Upload          |     ❌     |     ✅     |   ❌   |   ❌   |      ❌
+ID Document OCR          |     ❌     |     ✅     |   ❌   |   ❌   |      ❌
+KRA PIN Upload           |     ❌     |     ✅     |   ❌   |   ❌   |      ❌
+Liveness Check           |     ❌     |     ✅     |   ❌   |   ❌   |      ❌
+────────────────────────────────────────────────────────────────────────────────
+PIN Setup                |     ✅     |     ✅     |   ✅   |   ✅   |      ✅
+PIN Confirmation         |     ✅     |     ✅     |   ✅   |   ✅   |      ✅
+────────────────────────────────────────────────────────────────────────────────
+Security Questions      |     ✅     |     ✅     |   ❌   |   ✅   |      ❌
+Cellulant Validation    |     ✅     |     ✅     |   ❌   |   ✅   |      ❌
+────────────────────────────────────────────────────────────────────────────────
+Fiorano Integration     |     ❌     |     ✅     |   ✅   |   ❌   |      ✅
+M247 Integration        |     ✅     |     ❌     |   ❌   |   ✅   |      ❌
+────────────────────────────────────────────────────────────────────────────────
+Astra Wallet            |     ❌     |     ✅     |  PART  |   ❌   |      ❌
+Astra Identity          |     -      | digital-bank | glf-dtb-user | - | -
+────────────────────────────────────────────────────────────────────────────────
+USSD Support            |     ❓     |     ❌     |   ✅   |   ❌   |      ✅
+Multi-Channel           |     ❌     |     ✅     |   ✅   |   ✅   |      ❌
+────────────────────────────────────────────────────────────────────────────────
+
+LEGEND:
+  ✅ = Enabled/Required
+  ❌ = Not Required/Not Used
+  ❓ = Unknown/Possibly
+  PART = Partial/Limited
+
+================================================================================
+CONFIGURATION FLAGS (ClientDetails)
+================================================================================
+
+                                      | DTB Mobile | Astra Mara | GFL    | Trade Finance
+────────────────────────────────────────────────────────────────────────────────
+isRequireOnboardingProfileHaveFlexAccounts    | ✅ true  |  ✅ true  | ❌ false | ❌ false
+────────────────────────────────────────────────────────────────────────────────
+isCompleteProfileOnboardingAfterPhoneVerification | ❌ false |  ❌ false | ❌ false | ? TBD
+────────────────────────────────────────────────────────────────────────────────
+isAnAstraTenant                           | ❌ false |  ✅ true  | ✅ true  | ❌ false
+────────────────────────────────────────────────────────────────────────────────
+isAstraOnboardingRequireSelfieScore       | ❌ false |  ✅ true  | ❌ false | ❌ false
+────────────────────────────────────────────────────────────────────────────────
+
+================================================================================
+KEY IMPLEMENTATION PATTERNS - GFL (Template for Trade Finance)
+================================================================================
+
+1. SKIP SECURITY QUESTIONS
+   ────────────────────────
+   Location: ProfileStateCheckServiceImpl.ifToUnblockOnBoardingProfile()
+   
+   How it works:
+   - Method has parameter: boolean isCheckSecurityQuestionsSetUp
+   - If FALSE: Security questions check is bypassed ✅
+   - If TRUE: Security questions must be present
+   
+   GFL Usage:
+   - When validating Cellulant PIN: pass false
+   - When setting up PIN: pass false (skip security questions entirely)
+   
+   Code:
+   ┌────────────────────────────────────────────────────────┐
+   │ boolean isByPassSecurityQuestionsSetUpCheck = true;    │
+   │ if (isCheckSecurityQuestionsSetUp) {                   │
+   │     isByPassSecurityQuestionsSetUpCheck =              │
+   │         profile.getSecurityQuestions() != null &&      │
+   │         !profile.getSecurityQuestions().isEmpty();     │
+   │ }                                                      │
+   │ // If false param: check is bypassed ✅                │
+   └────────────────────────────────────────────────────────┘
+   
+   Trade Finance Usage:
+   - REUSE THIS EXACT PATTERN ✅
+   - Pass false to skip security questions
+
+
+2. NO CELLULANT VALIDATION
+   ───────────────────────
+   Location: ProfileCountryAndPhoneNoServiceImpl.validateCellulantPin()
+   
+   How it works:
+   - GFL does NOT call validateCellulantPin() at all
+   - PIN is set directly in Profile entity
+   - Cellulant interaction is skipped
+   
+   Current Problem:
+   - No clear conditional check currently
+   - Cellulant validation is implicit in flow
+   
+   Solution for Trade Finance:
+   - Extract Cellulant validation into conditional block:
+   
+   ┌────────────────────────────────────────────────────────┐
+   │ if (client.shouldValidateCellulantPin()) {             │
+   │     StatusCodeAndException result =                    │
+   │         cellulantService.validateCellulantPin(...);    │
+   │     // Process result                                  │
+   │ } else {                                               │
+   │     // Skip Cellulant, set PIN directly                │
+   │     profile.setPinSet(true);                           │
+   │ }                                                      │
+   └────────────────────────────────────────────────────────┘
+
+
+3. FIORANO DATA PULL
+   ──────────────────
+   Location: FioranoDataQueryServiceImpl
+   
+   Method: getCustomerCoreBankingAccountsByIdNumberOrPassport(idNumberOrPassport)
+   
+   How it works:
+   - Try National ID first
+   - Fall back to Passport if not found
+   - Returns customer details from Fiorano
+   
+   GFL Usage:
+   - Used for onboarding to pull customer data
+   - Maps Fiorano response to Profile
+   
+   Trade Finance Usage:
+   - REUSE THIS EXACT METHOD ✅
+   - Primary source (not fallback)
+   - Input: National ID or Passport from USSD user
+
+
+4. TENANT CONFIGURATION
+   ─────────────────────
+   Location: TenantsConfiguration + application.yml
+   
+   GFL Config:
+   ┌────────────────────────────────────────────────────────┐
+   │ tenants-configurations:                                │
+   │   gfl:                                                  │
+   │     id: 88ad615d-5d4f-4649-b6c3-51ae8be8a3b3           │
+   │     astra-identity: glf-dtb-user                       │
+   │     astra-tier-three-digital-wallet-type-name:         │
+   │       DTB TIER THREE                                   │
+   │     astra-tier-one-digital-wallet-type-name:           │
+   │       DTB TIER ONE                                     │
+   └────────────────────────────────────────────────────────┘
+   
+   Trade Finance Config (Template):
+   ┌────────────────────────────────────────────────────────┐
+   │ tenants-configurations:                                │
+   │   trade-finance:                                       │
+   │     id: [NEW UUID]                                     │
+   │     astra-identity: null  (or skip for now)           │
+   │     # No Astra config needed initially                 │
+   └────────────────────────────────────────────────────────┘
+
+================================================================================
+DATABASE MIGRATION REFERENCES
+================================================================================
+
+GFL Setup Example:
+──────────────────
+
+1. Tenant Created:
+   ✅ ID: 88ad615d-5d4f-4649-b6c3-51ae8be8a3b3
+   ✅ Name: GFL
+   ✅ In: public_auth_service.tenant_organization
+
+2. Client Created:
+   ✅ Client ID: 4c147a51-d154-4e37-9ea6-7ad504f9d83c
+   ✅ Name: gfl
+   ✅ Tenant: 12974 (numeric tenant ID)
+   ✅ isRequireOnboardingProfileHaveFlexAccounts: false
+   ✅ isAnAstraTenant: true
+   ✅ In: public_auth_service.client_details
+
+3. Astra Tenant ID Mapping:
+   ✅ In: profile_service.client_astra_tenant_id
+   ✅ Client: 4c147a51-d154-4e37-9ea6-7ad504f9d83c
+   ✅ Tenant: 12974
+
+4. Configuration:
+   ✅ In: application-local.yml (and other env configs)
+   ✅ Tenant ID referenced in TenantsConfiguration
+
+Trade Finance Setup Template:
+──────────────────────────────
+
+1. Generate NEW UUID for Trade Finance Tenant ID
+   Example: trade-finance-tenant-uuid-here
+
+2. Create Tenant Record
+   - Name: Trade Finance
+   - ID: [NEW UUID]
+
+3. Create Client Record
+   - Name: Trade Finance USSD
+   - Tenant: [Link to Trade Finance tenant]
+   - isRequireOnboardingProfileHaveFlexAccounts: false
+   - isCompleteProfileOnboardingAfterPhoneVerification: false
+   - isAnAstraTenant: false
+   - isAstraOnboardingRequireSelfieScore: false
+
+4. Add Configuration (if needed)
+   - Add to TenantsConfiguration if special wallet configs needed
+   - For now: keep minimal (not Astra-focused)
+
+5. Device ID Pattern
+   - Format: trade-finance-ussd-{countryCode}-{phoneNumber}
+   - Managed in: ProfileCountryAndPhoneNoServiceImpl
+
+================================================================================
+REUSABILITY SCORECARD
+================================================================================
+
+Component                              | GFL Pattern | Reusable for Trade Finance
+────────────────────────────────────────────────────────────────────────────────
+Skip Security Questions               |     ✅      |     ✅ DIRECT REUSE
+────────────────────────────────────────────────────────────────────────────────
+Fiorano Data Pull                      |     ✅      |     ✅ DIRECT REUSE
+────────────────────────────────────────────────────────────────────────────────
+Tenant Configuration                  |     ✅      |     ✅ DIRECT REUSE (simplified)
+────────────────────────────────────────────────────────────────────────────────
+Client Configuration Flags             |     ✅      |     ✅ DIRECT REUSE
+────────────────────────────────────────────────────────────────────────────────
+PIN Setup                              |     ✅      |     ✅ DIRECT REUSE
+────────────────────────────────────────────────────────────────────────────────
+OTP Verification                       |     ✅      |     ✅ DIRECT REUSE
+────────────────────────────────────────────────────────────────────────────────
+ProfileDevice Registration             |     ✅      |     ✅ DIRECT REUSE (custom ID)
+────────────────────────────────────────────────────────────────────────────────
+Skip Cellulant Validation              |     ✅      |     ⚠️ NEEDS REFACTORING
+────────────────────────────────────────────────────────────────────────────────
+USSD Channel Support                   |     ✅      |     ✅ EXISTING (DTB Mobile)
+────────────────────────────────────────────────────────────────────────────────
+
+OVERALL REUSABILITY: ✅ HIGH (90%+ can be reused from GFL pattern)
+
+================================================================================
+IMPLEMENTATION STRATEGY BASED ON GFL
+================================================================================
+
+✅ DO (Reuse GFL's Approach):
+  1. Use isCheckSecurityQuestionsSetUp=false pattern (proven in GFL)
+  2. Use Fiorano integration (proven in GFL)  
+  3. Use configuration flags (proven in GFL)
+  4. Create simplified tenant config (follow GFL pattern)
+  5. Set isRequireOnboardingProfileHaveFlexAccounts=false (GFL does this)
+  6. Skip Astra wallet integration initially (like GFL)
+
+❌ DON'T (Don't Create New Patterns):
+  1. Don't create new security questions skip mechanism
+  2. Don't create new Fiorano integration
+  3. Don't create new PIN setup logic
+  4. Don't duplicate GFL's working patterns
+
+⚠️ REFACTOR (Improve for Both):
+  1. Extract Cellulant validation into conditional block
+  2. Make it easy for future clients to skip Cellulant
+  3. Both GFL and Trade Finance will benefit
+
+================================================================================

@@ -1,0 +1,172 @@
+================================================================================
+                      TRADE FINANCE USSD DECISION TREE
+================================================================================
+
+USER DIALS USSD CODE
+│
+│  ┌─────────────────────────────────────────────────────────────┐
+│  │ STEP 1: CHECK PROFILE STATUS                               │
+│  │ GET /v1/profiles/country/{countryId}/phone-no/{phoneNo}     │
+│  │ (No body needed - read-only check)                          │
+│  └─────────────────────────────────────────────────────────────┘
+│
+├──────────────────────┬─────────────────────────────────────────────┐
+│                      │                                             │
+▼                      ▼                                             ▼
+✅ 200 OK          ✅ 200 OK                               ❌ 404 NOT FOUND
+Profile found      Profile found                          Profile doesn't exist
+blocked=false      blocked=true
+
+│
+├─ blockReason: null    ├─ blockReason:              └─ Reason: ResourceNotFoundException
+├─ status: Active       │   "Onboarding"             └─ Action: Create new profile
+├─ pinSet: true         │
+│                       ├─ currentStep:
+│                       │   PhoneVerification ─┐
+│                       │   StaticDataEntry ──┤
+│                       │   PinSetUp ────────┤
+│                       │   etc. ────────────┘
+│                       │
+│                       │  All: Resume from this step
+│
+│                       │
+▼                       ▼                                             ▼
+┌─────────────────────────────────────────────────┐
+│ PROFILE IS ACTIVE & COMPLETE                    │
+│                                                  │
+│ Show Main Menu:                                  │
+│ 1. View Account Balance                          │
+│ 2. Transfer Money                                │
+│ 3. Pay Bills                                     │
+│ 4. Change PIN                                    │
+│ etc.                                             │
+└─────────────────────────────────────────────────┘
+                                                   
+                ┌─────────────────────────────────────────────┐
+                │ PROFILE IS BLOCKED FOR ONBOARDING          │
+                │ RESUME FROM CURRENT STEP                   │
+                │                                             │
+                │ Current Step: PhoneVerification             │
+                │ Action: Send OTP or verify existing OTP     │
+                │                                             │
+                │ Or:                                         │
+                │ Current Step: PinSetUp                      │
+                │ Action: Prompt user to set PIN              │
+                └─────────────────────────────────────────────┘
+                
+                                                   
+                                                   ┌──────────────────────────┐
+                                                   │ PROFILE DOESN'T EXIST     │
+                                                   │ START NEW ONBOARDING      │
+                                                   │                          │
+                                                   │ STEP 2: CREATE PROFILE   │
+                                                   │ POST /v1/profiles/       │
+                                                   │ country/KE/phone-no/... │
+                                                   │                          │
+                                                   │ Body:                    │
+                                                   │ {                        │
+                                                   │  isAcceptTerms: true,    │
+                                                   │  deviceInfo: {...}       │
+                                                   │ }                        │
+                                                   │                          │
+                                                   │ Response:                │
+                                                   │ - New profileId created  │
+                                                   │ - Profile BLOCKED        │
+                                                   │ - OTP sent to phone      │
+                                                   │                          │
+                                                   │ Next: Verify OTP         │
+                                                   └──────────────────────────┘
+
+================================================================================
+                        TWO HTTP CALLS, TWO PURPOSES
+================================================================================
+
+  GET /v1/profiles/country/{countryId}/phone-no/{phoneNo}
+  ├─ What: Read profile status (no side effects)
+  ├─ When: Always first, when user dials USSD code
+  ├─ Why: Know if profile exists, is onboarded, or stuck in onboarding
+  ├─ Response: 200 (found) or 404 (not found)
+  └─ Returns: Profile details + onboarding progress
+
+  
+  POST /v1/profiles/country/{countryId}/phone-no/{phoneNo}
+  ├─ What: Create new profile + start onboarding (side effects!)
+  ├─ When: Only if GET returns 404 NOT FOUND
+  ├─ Why: Create profile, send OTP, block profile during setup
+  ├─ Response: 201 CREATED (success) or errors
+  └─ Returns: New profileId + OTP sent confirmation
+
+================================================================================
+                           PSEUDO CODE FLOW
+================================================================================
+
+function handleUSSDRequest(countryCode, phoneNumber) {
+  
+  // STEP 1: Check if profile exists
+  try {
+    profile = GET `/v1/profiles/country/{countryCode}/phone-no/{phoneNumber}`
+    
+    if (!profile.blocked) {
+      // ✅ Profile is active and onboarded
+      return showMainMenu(profile)
+    }
+    
+    if (profile.blocked && profile.blockReason == "Onboarding") {
+      // ⏳ Profile exists but incomplete
+      currentStep = profile.onboardingStepProgress.stepName
+      return resumeOnboarding(profile, currentStep)
+    }
+    
+    if (profile.blocked) {
+      // ❌ Profile blocked for other reasons
+      return showError(profile.blockReasonDescription)
+    }
+    
+  } catch (ResourceNotFoundException) {
+    // Profile not found - proceed to create
+    
+    // STEP 2: Create new profile
+    try {
+      response = POST `/v1/profiles/country/{countryCode}/phone-no/{phoneNumber}` {
+        onboardingData: {...}
+      }
+      
+      // ✅ Profile created
+      return startOnboarding(response.profileId)
+      
+    } catch (DuplicateResourceException) {
+      // This shouldn't happen if GET worked correctly
+      log.error("Duplicate profile detected - retry logic needed")
+    }
+  }
+}
+
+================================================================================
+                              KEY POINTS
+================================================================================
+
+1. TWO ENDPOINTS, TWO METHODS:
+   └─ GET: Check if exists (read-only, no risk)
+   └─ POST: Create new + onboard (creates data, blocks profile)
+
+2. ALWAYS GET FIRST:
+   └─ Avoids duplicate profile creation
+   └─ Lets you resume interrupted onboarding
+   └─ Knows current profile state
+
+3. ONLY POST AFTER GET 404:
+   └─ Safe - you've already confirmed profile doesn't exist
+   └─ Creates blocked profile for safe onboarding
+   └─ Sends OTP automatically
+
+4. PROFILE BLOCKING:
+   └─ GET returns profile with blocked=true during onboarding
+   └─ Use blockReason to know if it's onboarding or fraud/suspended
+   └─ Use onboardingStepProgress to resume correctly
+
+5. DEVICE ID FORMAT:
+   └─ For Trade Finance: trade-finance-ussd-{countryCode}-{phoneNumber}
+   └─ Sent in POST body, not URL
+   └─ Used to identify USSD device for future transactions
+
+================================================================================
